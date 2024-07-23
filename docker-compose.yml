@@ -10,8 +10,9 @@ services:
     depends_on:
       - mysqld-exporter
     links:
-      - mysqld-exporter
       - node-exporter
+      - mysqld-exporter
+      - mongodb-exporter
 
   node-exporter:
     image: prom/node-exporter
@@ -35,22 +36,6 @@ services:
       - prometheus
     depends_on:
       - prometheus
-
-  mysqld-exporter:
-    image: prom/mysqld-exporter
-    command: --config.my-cnf=/cfg/.my.cnf
-    environment:
-      - "DATA_SOURCE_NAME=root${DB_PASSWORD}:@(mysql:3306)/"
-    ports:
-      - 9104:9104
-    volumes:
-      - ./config.my-cnf:/cfg/.my.cnf
-    networks:
-      - grafana_local
-    links:
-      - mysql
-    depends_on:
-      - mysql
 
   mysql:
     container_name: mysql
@@ -92,6 +77,60 @@ services:
       - ./volumes/db/data:/var/lib/mysql:delegated
     networks:
       - grafana_local
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter
+    command: --config.my-cnf=/cfg/.my.cnf
+    environment:
+      - "DATA_SOURCE_NAME=root${DB_PASSWORD}:@(mysql:3306)/"
+    ports:
+      - 9104:9104
+    volumes:
+      - ./config.my-cnf:/cfg/.my.cnf
+    networks:
+      - grafana_local
+    links:
+      - mysql
+    depends_on:
+      - mysql
+
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    command: --profile 2 --slowms 15 --slowOpSampleRate 0.5
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    volumes:
+      - ./volumes/mongodb/data/:/data/db/
+      - ./volumes/mongodb/input/:/data/input/
+      - ./volumes/mongodb/mongod.conf:/etc/mongod.conf
+    ports:
+      - 27017:27017
+    networks:
+      - grafana_local
+
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.40
+    container_name: mongodb-exporter
+    command:
+      - '--mongodb.global-conn-pool'
+      - '--collector.diagnosticdata'
+      - '--discovering-mode'
+      - '--compatible-mode'
+      - '--mongodb.uri=mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/'
+    restart: always
+    environment:
+      WAIT_HOSTS: mongo:27017
+      MONGODB_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongo:27017/
+    ports:
+      - 9216:9216
+    networks:
+      - grafana_local
+    depends_on:
+      - mongo
 
 networks:
   grafana_local:
