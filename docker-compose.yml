@@ -13,6 +13,7 @@ services:
       - node-exporter
       - mysqld-exporter
       - mongodb-exporter
+      - redis-exporter
 
   node-exporter:
     image: prom/node-exporter
@@ -103,12 +104,17 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh mongo:27017 --quiet
+      interval: 5s
+      timeout: 10s
+      retries: 5
     volumes:
       - ./volumes/mongodb/data/:/data/db/
       - ./volumes/mongodb/input/:/data/input/
       - ./volumes/mongodb/mongod.conf:/etc/mongod.conf
     ports:
-      - 27017:27017
+      - 127.0.0.1:27017:27017
     networks:
       - grafana_local
 
@@ -131,6 +137,58 @@ services:
       - grafana_local
     depends_on:
       - mongo
+
+  redis:
+    container_name: redis
+    image: redis:7.0-alpine
+    command: redis-server --save 20 1 --loglevel warning --requirepass ${REDIS_AUTH_PASSWORD}
+    privileged: true
+    sysctls:
+      net.core.somaxconn: '511'
+    environment:
+      TERM: linux
+      LANG: 'C.UTF-8'
+      LOG_ROTATION_DAY: 7
+    dns:
+      - 1.1.1.1
+    logging:
+      driver: json-file
+      options:
+        max-size: '50m'
+        max-file: '2'
+    restart: 'no'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'redis-cli',
+          '-a',
+          '${REDIS_AUTH_PASSWORD}',
+          'ping'
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    ports:
+      - 127.0.0.1:6739:6739
+    volumes:
+      - ./volumes/redis:/data:delegated
+    networks:
+      - grafana_local
+
+  redis-exporter:
+    image: oliver006/redis_exporter:alpine
+    environment:
+      REDIS_ADDR: 'redis://redis:6379'
+      REDIS_PASSWORD: ${REDIS_AUTH_PASSWORD}
+    ports:
+      - 9121:9121
+    networks:
+      - grafana_local
+    links:
+      - redis
+    depends_on:
+      - redis
 
 networks:
   grafana_local:
